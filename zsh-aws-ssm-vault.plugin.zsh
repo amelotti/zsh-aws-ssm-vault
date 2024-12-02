@@ -6,6 +6,7 @@ get_ssm_parameter() {
     local verbose=0
     local parameter_name=""
     local aws_profile=""
+    local aws_region=""
 
     # Verifica os argumentos
     while [[ "$#" -gt 0 ]]; do
@@ -16,6 +17,10 @@ get_ssm_parameter() {
                 ;;
             --profile)
                 aws_profile="$2"
+                shift 2
+                ;;
+            --region)
+                aws_region="$2"
                 shift 2
                 ;;
             *)
@@ -36,9 +41,15 @@ get_ssm_parameter() {
         aws_profile=$ZSH_AWS_PROFILE
     fi
 
+    # Monta o comando AWS CLI com região opcional
+    local aws_cmd="aws --profile \"$aws_profile\""
+    if [[ -n "$aws_region" ]]; then
+        aws_cmd="$aws_cmd --region \"$aws_region\""
+    fi
+
     # Busca o parâmetro usando AWS CLI
     local parameter_value
-    parameter_value=$(aws --profile "$aws_profile" ssm get-parameter --name "$parameter_name" --with-decryption --query "Parameter.Value" --output text 2>/dev/null)
+    parameter_value=$(eval "$aws_cmd ssm get-parameter --name \"$parameter_name\" --with-decryption --query \"Parameter.Value\" --output text 2>/dev/null")
 
     # Verifica se a busca foi bem-sucedida
     if [[ $? -ne 0 ]]; then
@@ -61,7 +72,7 @@ get_ssm_parameter() {
 
 
 #
-# Função definir o valor de um parâmetro no AWS Systems Manager Parameter Store
+# Função para definir o valor de um parâmetro no AWS Systems Manager Parameter Store
 #
 set_ssm_parameter() {
     local verbose=0
@@ -69,6 +80,7 @@ set_ssm_parameter() {
     local parameter_value=""
     local parameter_type="String"  # Tipo padrão é "String"
     local aws_profile=""
+    local aws_region=""  # Nova variável para região
 
     # Verifica os argumentos
     while [[ "$#" -gt 0 ]]; do
@@ -93,6 +105,10 @@ set_ssm_parameter() {
                 parameter_value="$2"
                 shift 2
                 ;;
+            --region)
+                aws_region="$2"
+                shift 2
+                ;;
             *)
                 echo "Erro: Argumento inválido '$1'."
                 return 1
@@ -111,16 +127,24 @@ set_ssm_parameter() {
         aws_profile=$ZSH_AWS_PROFILE
     fi
 
-    # Define ou atualiza o parâmetro usando AWS CLI
+    # Comando base do AWS CLI com profile
+    local aws_cmd="aws --profile $aws_profile"
+
+    # Adiciona região se especificada
+    if [[ -n "$aws_region" ]]; then
+        aws_cmd="$aws_cmd --region $aws_region"
+    fi
+
     if [[ $verbose -eq 1 ]]; then
         echo "Definindo o parâmetro..."
         echo "Nome: $parameter_name"
         echo "Valor: $parameter_value"
         echo "Tipo: $parameter_type"
         echo "Profile AWS: $aws_profile"
+        [[ -n "$aws_region" ]] && echo "Região AWS: $aws_region"
     fi
 
-    aws --profile "$aws_profile" ssm put-parameter \
+    $aws_cmd ssm put-parameter \
         --name "$parameter_name" \
         --value "$parameter_value" \
         --type "$parameter_type" \
@@ -151,6 +175,7 @@ list_ssm_parameters() {
     local verbose=0
     local include_values=0
     local aws_profile=""
+    local aws_region=""
     local next_token=""
 
     # Verifica os argumentos
@@ -162,6 +187,10 @@ list_ssm_parameters() {
                 ;;
             --profile)
                 aws_profile="$2"
+                shift 2
+                ;;
+            --region)
+                aws_region="$2"
                 shift 2
                 ;;
             --with-values)
@@ -186,13 +215,22 @@ list_ssm_parameters() {
         echo "Incluir valores: $include_values"
     fi
 
+    # Adiciona a região ao comando AWS CLI se especificada
+    local aws_base_cmd="aws --profile \"$aws_profile\""
+    if [[ -n "$aws_region" ]]; then
+        aws_base_cmd="$aws_base_cmd --region \"$aws_region\""
+        if [[ $verbose -eq 1 ]]; then
+            echo "Região AWS: $aws_region"
+        fi
+    fi
+
     # Lista os parâmetros (paginação caso haja muitos)
     while :; do
         local response
         if [[ -n "$next_token" ]]; then
-            response=$(aws --profile "$aws_profile" ssm describe-parameters --next-token "$next_token" --query "{Parameters: Parameters, NextToken: NextToken}" --output json 2>/dev/null)
+            response=$(eval "$aws_base_cmd ssm describe-parameters --next-token \"$next_token\" --query \"{Parameters: Parameters, NextToken: NextToken}\" --output json 2>/dev/null")
         else
-            response=$(aws --profile "$aws_profile" ssm describe-parameters --query "{Parameters: Parameters, NextToken: NextToken}" --output json 2>/dev/null)
+            response=$(eval "$aws_base_cmd ssm describe-parameters --query \"{Parameters: Parameters, NextToken: NextToken}\" --output json 2>/dev/null")
         fi
 
         # Verifica se a chamada foi bem-sucedida
@@ -213,7 +251,7 @@ list_ssm_parameters() {
             if [[ $include_values -eq 1 ]]; then
                 # Obtém o valor do parâmetro
                 local param_value
-                param_value=$(aws --profile "$aws_profile" ssm get-parameter --name "$param_name" --with-decryption --query "Parameter.Value" --output text 2>/dev/null)
+                param_value=$(eval "$aws_base_cmd ssm get-parameter --name \"$param_name\" --with-decryption --query \"Parameter.Value\" --output text 2>/dev/null")
 
                 # Verifica se a busca foi bem-sucedida
                 if [[ $? -ne 0 ]]; then
